@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>住所データ変換・補完ツール</title>
+<link rel="icon" href="data:,">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/encoding-japanese/2.2.0/encoding.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<style>
+:root{--bg:#f6f8fb;--card:#fff;--line:#dfe5ec;--text:#263241;--muted:#6b7785;--blue:#2563eb;--blue2:#eaf1ff;--green:#138a5b;--green2:#eaf8f2;--amber:#b56a00;--amber2:#fff6df;--red:#c13b3b;--red2:#fff0f0;--purple:#7653d6;--shadow:0 12px 30px rgba(31,45,61,.08)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP","Yu Gothic UI",sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 22px 64px}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
+h1{font-size:28px;margin:0 0 8px}.sub{color:var(--muted);line-height:1.7;margin:0}.pill{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:700;background:#eef2f7;color:#526170;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px;margin-bottom:18px}
+.master{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.dot{width:10px;height:10px;border-radius:50%;background:#aab4c0}.dot.ok{background:var(--green)}.dot.err{background:var(--red)}.muted{color:var(--muted)}
+.drop{border:2px dashed #b8c4d2;border-radius:16px;padding:34px 24px;text-align:center;cursor:pointer;background:#fbfcfe;transition:.18s}.drop:hover,.drop.drag{border-color:var(--blue);background:var(--blue2)}
+.drop strong{display:block;font-size:18px;margin-bottom:8px}.drop input{display:none}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.row.between{justify-content:space-between}.sheetbox{display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+select,button{font:inherit}select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:10px;background:white;color:var(--text)}
+button{border:none;border-radius:10px;padding:10px 15px;font-weight:700;cursor:pointer}.primary{background:var(--blue);color:white}.secondary{background:#eef2f7;color:#3f4d5c}.ghost{background:white;border:1px solid var(--line);color:#4e5c69}.small{padding:8px 11px;font-size:13px}
+button:disabled{opacity:.45;cursor:not-allowed}.status{margin-top:14px;padding:12px 14px;border-radius:10px;background:#f3f6fa;color:#4e5c69}.status.ok{background:var(--green2);color:var(--green)}.status.err{background:var(--red2);color:var(--red)}
+.summary{display:none}.stats{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin-top:14px}.stat{background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:12px}.stat b{display:block;font-size:22px;margin-top:3px}.stat span{font-size:12px;color:var(--muted)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.tableWrap{display:none;overflow:auto;max-height:58vh;border:1px solid var(--line);border-radius:14px;background:white}
+table{border-collapse:separate;border-spacing:0;min-width:1700px;width:100%;font-size:13px}th,td{padding:9px 10px;border-right:1px solid #edf1f5;border-bottom:1px solid #edf1f5;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+th{position:sticky;top:0;background:#eef4ff;color:#31415a;z-index:2;text-align:left}.bad{background:#fff4f4}.warn{background:#fff8e8}.filled{background:#fffbe9}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}.sw{display:inline-block;width:12px;height:12px;border:1px solid #ddd;vertical-align:-2px;margin-right:5px}.sw.f{background:#fffbe9}.sw.b{background:#fff4f4}.sw.w{background:#fff8e8}
+@media(max-width:760px){.top{flex-direction:column}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>住所データ変換・補完ツール</h1>
+      <p class="sub">CSV / Excel の住所情報を相互補完し、郵便番号・住所分解・自治体コードをまとめてExcel化します。<br>入力済みの値は原則上書きせず、矛盾は「要確認」として残します。</p>
+    </div>
+    <span class="pill">ブラウザ内で処理</span>
+  </div>
+
+  <section class="card">
+    <div class="master">
+      <span id="masterDot" class="dot"></span>
+      <strong id="masterText">共通住所マスタを読み込んでいます…</strong>
+      <span id="masterDetail" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div id="drop" class="drop">
+      <strong>CSV または Excel を選択</strong>
+      <span class="muted">.csv / .xlsx に対応。Excelは「住所変換結果」があれば優先して読み込みます。</span>
+      <input id="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    </div>
+    <div id="sheetBox" class="sheetbox">
+      <div class="row between">
+        <div class="row"><strong>読み込みシート</strong><select id="sheetSelect"></select></div>
+        <button id="rerun" class="secondary small">このシートで再処理</button>
+      </div>
+    </div>
+    <div id="status" class="status">マスタ読み込み後にファイルを選択できます。</div>
+  </section>
+
+  <section id="summary" class="card summary">
+    <div class="row between">
+      <div><strong>処理結果</strong><div id="fileInfo" class="muted" style="margin-top:4px"></div></div>
+      <span class="pill" id="elapsed"></span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>全件</span><b id="sTotal">0</b></div>
+      <div class="stat"><span>OK</span><b id="sOk">0</b></div>
+      <div class="stat"><span>補完あり</span><b id="sFill">0</b></div>
+      <div class="stat"><span>要確認</span><b id="sWarn">0</b></div>
+      <div class="stat"><span>判定不可</span><b id="sUnknown">0</b></div>
+    </div>
+    <div class="actions">
+      <button id="xlsxBtn" class="primary">Excelをダウンロード</button>
+      <button id="csvBtn" class="ghost">CSVをダウンロード</button>
+    </div>
+  </section>
+
+  <div id="legend" class="legend" style="display:none">
+    <span><i class="sw f"></i>今回補完したセル</span>
+    <span><i class="sw w"></i>候補複数</span>
+    <span><i class="sw b"></i>不一致 / 判定不可</span>
+  </div>
+  <div id="tableWrap" class="tableWrap"><table id="preview"></table></div>
+</div>
+
+<script>
+const MASTER_BASE = '/address-master/';
+const OUTPUT_COLUMNS = [
+ '仕事番号','仕事名',
+ '郵便番号（ハイフン）','郵便番号1',
+ '町域未指定郵便番号（ハイフン）','町域未指定郵便番号1',
+ '全住所','都道府県','市区町村','町域','町域以降',
+ '県コード1','市区町村コード1','PrefCityコード','標準地域コード',
+ '補完判定','補完項目','確認メモ'
+];
+const INPUT_COLUMNS = OUTPUT_COLUMNS.filter(x => !['補完判定','補完項目','確認メモ','町域未指定郵便番号（ハイフン）','町域未指定郵便番号1'].includes(x));
+
+let mastersReady=false, muniMaster=null, zipRows=null;
+let muniByStd=new Map(), muniByName=new Map(), muniByPrefAndName=new Map(), prefNameToCode=new Map();
+let zipByZip=new Map(), zipByStd=new Map(), unspecifiedByStd=new Map();
+let workbookIn=null, currentFile=null, sourceRows=[], results=[];
+
+const $=id=>document.getElementById(id);
+function clean(v){ if(v===null||v===undefined) return ''; if(typeof v==='object' && v.text!==undefined) v=v.text; return String(v).trim(); }
+function norm(s){ return clean(s).normalize('NFKC').replace(/[‐‑‒–—―ー−ｰ]/g,'-').replace(/[\s　]+/g,''); }
+function normZip(s){
+  let x=norm(s).replace(/^〒/,'').replace(/[^0-9]/g,'');
+  if(!x) return '';
+  return x.length<=7 ? x.padStart(7,'0') : x.slice(0,7);
+}
+function hyphenZip(z){ z=normZip(z); return z.length===7 ? z.slice(0,3)+'-'+z.slice(3) : ''; }
+function prefCodeNum(s){ const n=parseInt(norm(s),10); return Number.isFinite(n)&&n>=1&&n<=47 ? String(n) : ''; }
+function cityCode3(s){
+  let x=norm(s).replace(/\D/g,'');
+  if(!x) return '';
+  if(x.length>3) x=x.slice(-3);
+  return x.padStart(3,'0');
+}
+function stdCode(s){
+  let x=norm(s).replace(/\D/g,'');
+  if(!x) return '';
+  return x.padStart(5,'0').slice(-5);
+}
+function prefCityCodeFromStd(std){ std=stdCode(std); return std ? String(parseInt(std,10)) : ''; }
+function addMapList(map,key,val){ if(!map.has(key)) map.set(key,[]); map.get(key).push(val); }
+function unique(arr){ return [...new Set(arr.filter(Boolean))]; }
+
+async function loadMasters(){
+  try{
+    const t=performance.now();
+    const [m,z]=await Promise.all([
+      fetch(MASTER_BASE+'municipality_master.json',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('municipality_master');return r.json()}),
+      fetch(MASTER_BASE+'zipcode_master.json',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('zipcode_master');return r.json()})
+    ]);
+    muniMaster=m; zipRows=z;
+    buildIndexes();
+    mastersReady=true;
+    $('masterDot').className='dot ok';
+    $('masterText').textContent='共通住所マスタ：準備完了';
+    $('masterDetail').textContent=`自治体 ${muniByStd.size.toLocaleString()}件 / 郵便番号マスタ ${zipRows.length.toLocaleString()}件 / ${Math.round(performance.now()-t)}ms`;
+    $('status').textContent='CSV または Excel を選択してください。';
+    $('status').className='status ok';
+  }catch(e){
+    console.error(e);
+    $('masterDot').className='dot err';
+    $('masterText').textContent='共通住所マスタを読み込めませんでした';
+    $('masterDetail').textContent=String(e.message||e);
+    $('status').textContent='address-master のPages公開状態を確認してください。';
+    $('status').className='status err';
+  }
+}
+function buildIndexes(){
+  const prefs=muniMaster.prefectures||{};
+  Object.entries(prefs).forEach(([code,name])=>prefNameToCode.set(norm(name),code));
+  Object.entries(muniMaster.municipalities||{}).forEach(([std,name])=>{
+    std=stdCode(std);
+    const p2=std.slice(0,2), pNum=String(parseInt(p2,10)), c3=std.slice(-3);
+    const rec={std,prefCode:pNum,prefCode2:p2,cityCode:c3,prefCity:String(parseInt(std,10)),prefName:prefs[p2]||'',cityName:name};
+    muniByStd.set(std,rec);
+    addMapList(muniByName,norm(name),rec);
+    muniByPrefAndName.set(norm(rec.prefName)+'|'+norm(name),rec);
+  });
+  zipRows.forEach(r=>{
+    const pref2=String(parseInt(r.pref,10)).padStart(2,'0');
+    const city3=String(r.city).slice(-3).padStart(3,'0');
+    const std=pref2+city3;
+    const rec={std,zip:normZip(r.zip),address:clean(r.address),addressN:norm(r.address)};
+    addMapList(zipByZip,rec.zip,rec);
+    addMapList(zipByStd,std,rec);
+    if(!rec.addressN) addMapList(unspecifiedByStd,std,rec.zip);
+  });
+  for(const [std,arr] of zipByStd) arr.sort((a,b)=>b.addressN.length-a.addressN.length);
+}
+function municipalityFromNames(prefName,cityName){
+  const p=norm(prefName), c=norm(cityName);
+  if(p&&c) return muniByPrefAndName.get(p+'|'+c)||null;
+  if(c){
+    const arr=muniByName.get(c)||[];
+    if(arr.length===1) return arr[0];
+  }
+  return null;
+}
+function municipalityFromCodes(row){
+  const candidates=[];
+  const std=stdCode(row['標準地域コード']);
+  if(std&&muniByStd.has(std)) candidates.push({src:'標準地域コード',rec:muniByStd.get(std)});
+  const pcRaw=norm(row['PrefCityコード']).replace(/\D/g,'');
+  if(pcRaw){
+    const pcStd=pcRaw.padStart(5,'0');
+    if(muniByStd.has(pcStd)) candidates.push({src:'PrefCityコード',rec:muniByStd.get(pcStd)});
+  }
+  const p=prefCodeNum(row['県コード1']), c=cityCode3(row['市区町村コード1']);
+  if(p&&c){
+    const x=String(parseInt(p,10)).padStart(2,'0')+c;
+    if(muniByStd.has(x)) candidates.push({src:'県コード1＋市区町村コード1',rec:muniByStd.get(x)});
+  }
+  return candidates;
+}
+function parseFullAddress(full){
+  const s=norm(full);
+  if(!s) return null;
+  let prefName='',prefCode2='',after=s;
+  const prefEntries=[...prefNameToCode.entries()].sort((a,b)=>b[0].length-a[0].length);
+  for(const [pn,pc] of prefEntries){ if(s.startsWith(pn)){prefName=pn;prefCode2=pc;after=s.slice(pn.length);break;} }
+  let candidates=[];
+  if(prefName){
+    for(const rec of muniByStd.values()){
+      if(rec.prefCode2===prefCode2 && after.startsWith(norm(rec.cityName))) candidates.push(rec);
+    }
+  }else{
+    for(const rec of muniByStd.values()){
+      const cn=norm(rec.cityName);
+      if(s.startsWith(cn)) candidates.push(rec);
+    }
+  }
+  if(!candidates.length) return prefName?{prefName,muni:null,tail:after,town:''}:null;
+  candidates.sort((a,b)=>norm(b.cityName).length-norm(a.cityName).length);
+  const muni=candidates[0];
+  const head=(prefName?norm(muni.prefName):'')+norm(muni.cityName);
+  const tail=s.slice(head.length);
+  const townMatch=findTown(muni.std,tail);
+  return {prefName:muni.prefName,muni,tail,town:townMatch?.town||'',zip:townMatch?.zip||'',ambiguousTown:townMatch?.ambiguous||false};
+}
+function findTown(std,tail){
+  const t=norm(tail); if(!t) return null;
+  const arr=(zipByStd.get(std)||[]).filter(x=>x.addressN);
+  const matched=arr.filter(x=>t.startsWith(x.addressN));
+  if(!matched.length) return null;
+  const maxLen=Math.max(...matched.map(x=>x.addressN.length));
+  const top=matched.filter(x=>x.addressN.length===maxLen);
+  const towns=unique(top.map(x=>x.address)), zips=unique(top.map(x=>x.zip));
+  return {town:towns.length===1?towns[0]:'',zip:zips.length===1?zips[0]:'',ambiguous:towns.length>1||zips.length>1};
+}
+function parseZipEvidence(row){
+  const z1=normZip(row['郵便番号（ハイフン）']), z2=normZip(row['郵便番号1']);
+  const vals=unique([z1,z2]);
+  return {z1,z2,values:vals,conflict:vals.length>1,zip:vals.length===1?vals[0]:''};
+}
+function postalMunicipalitySet(zip){
+  if(!zip) return [];
+  return unique((zipByZip.get(zip)||[]).map(x=>x.std)).filter(x=>muniByStd.has(x));
+}
+function postalTownInfo(zip,std){
+  if(!zip) return {town:'',ambiguous:false};
+  let arr=zipByZip.get(zip)||[];
+  if(std) arr=arr.filter(x=>x.std===std);
+  const towns=unique(arr.map(x=>x.address).filter(Boolean));
+  return {town:towns.length===1?towns[0]:'',ambiguous:towns.length>1};
+}
+function fmtList(a){ return unique(a).join(' / '); }
+
+function processOne(input){
+  const row={}; INPUT_COLUMNS.forEach(c=>row[c]=clean(input[c]));
+  const out={}; OUTPUT_COLUMNS.forEach(c=>out[c]='');
+  INPUT_COLUMNS.forEach(c=>out[c]=row[c]);
+  const filled=new Set(), notes=[], conflicts=[], ambiguous=[];
+  const fill=(col,val)=>{ if(!out[col] && val!=='' && val!==null && val!==undefined){out[col]=String(val);filled.add(col);} };
+
+  const zipEv=parseZipEvidence(row);
+  if(zipEv.conflict) conflicts.push(`郵便番号2列が不一致（${zipEv.values.join(' / ')}）`);
+
+  const strong=[];
+  municipalityFromCodes(row).forEach(x=>strong.push(x));
+  const named=municipalityFromNames(row['都道府県'],row['市区町村']);
+  if(named) strong.push({src:'都道府県＋市区町村',rec:named});
+  else if(row['市区町村'] && !row['都道府県']){
+    const arr=muniByName.get(norm(row['市区町村']))||[];
+    if(arr.length===1) strong.push({src:'市区町村名（全国一意）',rec:arr[0]});
+    else if(arr.length>1) ambiguous.push(`市区町村名「${row['市区町村']}」が全国で複数候補`);
+  }
+  const fullParsed=parseFullAddress(row['全住所']);
+  if(fullParsed?.muni) strong.push({src:'全住所',rec:fullParsed.muni});
+
+  const strongStds=unique(strong.map(x=>x.rec.std));
+  let canonical=null;
+  if(strongStds.length===1) canonical=muniByStd.get(strongStds[0]);
+  else if(strongStds.length>1){
+    conflicts.push('自治体情報が不一致（'+strong.map(x=>x.src+':'+x.rec.prefName+x.rec.cityName).join(' / ')+')');
+  }
+
+  const postalStds=postalMunicipalitySet(zipEv.zip);
+  if(canonical && postalStds.length && !postalStds.includes(canonical.std)){
+    conflicts.push(`郵便番号「${zipEv.zip}」と自治体「${canonical.prefName}${canonical.cityName}」が不一致`);
+  }
+  if(!canonical && !strongStds.length && zipEv.zip){
+    if(postalStds.length===1) canonical=muniByStd.get(postalStds[0]);
+    else if(postalStds.length>1) ambiguous.push(`郵便番号「${zipEv.zip}」が複数自治体に対応`);
+  }
+
+  if(canonical){
+    fill('都道府県',canonical.prefName);
+    fill('市区町村',canonical.cityName);
+    fill('県コード1',canonical.prefCode);
+    fill('市区町村コード1',canonical.cityCode);
+    fill('PrefCityコード',canonical.prefCity);
+    fill('標準地域コード',canonical.std);
+    const uz=unique(unspecifiedByStd.get(canonical.std)||[]);
+    if(uz.length===1){
+      fill('町域未指定郵便番号1',uz[0]);
+      fill('町域未指定郵便番号（ハイフン）',hyphenZip(uz[0]));
+    }else if(uz.length>1) ambiguous.push('町域未指定郵便番号が複数候補');
+  }
+
+  let town='', resolvedZip='';
+  if(fullParsed?.muni && canonical && fullParsed.muni.std===canonical.std){
+    if(fullParsed.tail) fill('町域以降',fullParsed.tail);
+    if(fullParsed.town) town=fullParsed.town;
+    if(fullParsed.zip) resolvedZip=fullParsed.zip;
+    if(fullParsed.ambiguousTown) ambiguous.push('全住所からの町域・郵便番号候補が複数');
+  }
+  if(!town && row['町域']) town=row['町域'];
+  if(!town && canonical && row['町域以降']){
+    const tm=findTown(canonical.std,row['町域以降']);
+    if(tm){town=tm.town;resolvedZip=tm.zip;if(tm.ambiguous) ambiguous.push('町域以降からの郵便番号候補が複数');}
+  }
+  if(!town && zipEv.zip && canonical){
+    const pti=postalTownInfo(zipEv.zip,canonical.std);
+    if(pti.town) town=pti.town;
+    if(pti.ambiguous) ambiguous.push(`郵便番号「${zipEv.zip}」に対応する町域が複数`);
+  }
+  fill('町域',town);
+
+  if(!out['全住所'] && canonical && out['町域以降']) fill('全住所',canonical.prefName+canonical.cityName+out['町域以降']);
+
+  if(resolvedZip && zipEv.zip && resolvedZip!==zipEv.zip) conflicts.push(`入力郵便番号「${zipEv.zip}」と住所から判定した郵便番号「${resolvedZip}」が不一致`);
+  const normalZip=zipEv.conflict?'':(zipEv.zip||resolvedZip);
+  if(normalZip){
+    fill('郵便番号1',normalZip);
+    fill('郵便番号（ハイフン）',hyphenZip(normalZip));
+  }
+
+  // Normalize existing representations without changing semantic values.
+  if(out['郵便番号1']) out['郵便番号1']=normZip(out['郵便番号1']);
+  if(out['郵便番号（ハイフン）']) out['郵便番号（ハイフン）']=hyphenZip(out['郵便番号（ハイフン）']);
+  if(out['県コード1']) out['県コード1']=prefCodeNum(out['県コード1'])||out['県コード1'];
+  if(out['市区町村コード1']) out['市区町村コード1']=cityCode3(out['市区町村コード1'])||out['市区町村コード1'];
+  if(out['標準地域コード']) out['標準地域コード']=stdCode(out['標準地域コード'])||out['標準地域コード'];
+  if(out['PrefCityコード']) out['PrefCityコード']=String(parseInt(norm(out['PrefCityコード']).replace(/\D/g,''),10)||out['PrefCityコード']);
+
+  if(conflicts.length){
+    out['補完判定']='要確認（不一致）';
+    notes.push(...conflicts);
+  }else if(ambiguous.length){
+    out['補完判定']='要確認（候補複数）';
+    notes.push(...ambiguous);
+  }else if(!canonical && !normalZip && !row['全住所']){
+    out['補完判定']='判定不可';
+    notes.push('住所・郵便番号・自治体コードから自治体を特定できません');
+  }else if(!canonical && row['全住所']){
+    out['補完判定']='判定不可';
+    notes.push('全住所から市区町村を特定できません');
+  }else{
+    out['補完判定']=filled.size?'補完あり':'OK';
+  }
+  out['補完項目']=[...filled].join('::');
+  out['確認メモ']=notes.join(' / ');
+  return {out,filled};
+}
+
+function parseCSV(text){
+  const rows=[]; let row=[],cell='',q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch==='"' && text[i+1]==='"'){cell+='"';i++;}
+      else if(ch==='"') q=false;
+      else cell+=ch;
+    }else{
+      if(ch==='"') q=true;
+      else if(ch===','){row.push(cell);cell='';}
+      else if(ch==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell='';}
+      else cell+=ch;
+    }
+  }
+  if(cell.length||row.length){row.push(cell.replace(/\r$/,''));rows.push(row);}
+  return rows;
+}
+function rowsToObjects(rows){
+  if(!rows.length) return [];
+  const headers=rows[0].map(x=>clean(x).replace(/^\uFEFF/,''));
+  return rows.slice(1).filter(r=>r.some(v=>clean(v)!=='')).map(r=>{
+    const o={}; headers.forEach((h,i)=>o[h]=clean(r[i])); return o;
+  });
+}
+async function readCSV(file){
+  const buf=new Uint8Array(await file.arrayBuffer());
+  let detected=Encoding.detect(buf)||'SJIS';
+  let unicode=Encoding.convert(buf,{to:'UNICODE',from:detected});
+  let text=Encoding.codeToString(unicode).replace(/^\uFEFF/,'');
+  return rowsToObjects(parseCSV(text));
+}
+async function readXlsx(file){
+  const wb=new ExcelJS.Workbook();
+  await wb.xlsx.load(await file.arrayBuffer());
+  workbookIn=wb;
+  const sheets=wb.worksheets.filter(ws=>ws.state!=='veryHidden');
+  const select=$('sheetSelect'); select.innerHTML='';
+  sheets.forEach(ws=>{const op=document.createElement('option');op.value=ws.id;op.textContent=ws.name;select.appendChild(op);});
+  const preferred=sheets.find(ws=>ws.name==='住所変換結果')||sheets.find(ws=>ws.state==='visible')||sheets[0];
+  if(preferred) select.value=preferred.id;
+  $('sheetBox').style.display=sheets.length>1?'block':'none';
+  return preferred?worksheetToObjects(preferred):[];
+}
+function worksheetToObjects(ws){
+  const headerRow=ws.getRow(1);
+  const headers=[];
+  headerRow.eachCell({includeEmpty:true},(cell,col)=>headers[col-1]=clean(cell.value));
+  const arr=[];
+  for(let r=2;r<=ws.rowCount;r++){
+    const o={}; let any=false;
+    headers.forEach((h,i)=>{if(!h)return; const v=clean(ws.getRow(r).getCell(i+1).value);o[h]=v;if(v)any=true;});
+    if(any)arr.push(o);
+  }
+  return arr;
+}
+async function processRows(rows,label){
+  const t=performance.now();
+  sourceRows=rows;
+  results=rows.map(processOne);
+  render(label,Math.round(performance.now()-t));
+}
+function render(label,ms){
+  const outs=results.map(x=>x.out);
+  const counts={ok:0,fill:0,warn:0,unknown:0};
+  outs.forEach(r=>{
+    if(r['補完判定']==='OK')counts.ok++;
+    else if(r['補完判定']==='補完あり')counts.fill++;
+    else if(r['補完判定']==='判定不可')counts.unknown++;
+    else counts.warn++;
+  });
+  $('summary').style.display='block'; $('tableWrap').style.display='block'; $('legend').style.display='flex';
+  $('fileInfo').textContent=label; $('elapsed').textContent='判定 '+ms+'ms';
+  $('sTotal').textContent=outs.length.toLocaleString(); $('sOk').textContent=counts.ok.toLocaleString(); $('sFill').textContent=counts.fill.toLocaleString(); $('sWarn').textContent=counts.warn.toLocaleString(); $('sUnknown').textContent=counts.unknown.toLocaleString();
+  $('status').textContent=`${outs.length.toLocaleString()}件を処理しました。`; $('status').className='status ok';
+  const max=200, table=$('preview'); table.innerHTML='';
+  const thead=document.createElement('thead'),tr=document.createElement('tr');
+  OUTPUT_COLUMNS.forEach(c=>{const th=document.createElement('th');th.textContent=c;tr.appendChild(th)});thead.appendChild(tr);table.appendChild(thead);
+  const tb=document.createElement('tbody');
+  results.slice(0,max).forEach(({out,filled})=>{
+    const tr=document.createElement('tr');
+    if(out['補完判定']==='要確認（不一致）'||out['補完判定']==='判定不可')tr.className='bad';
+    else if(out['補完判定']==='要確認（候補複数）')tr.className='warn';
+    OUTPUT_COLUMNS.forEach(c=>{const td=document.createElement('td');td.textContent=out[c]||'';td.title=out[c]||'';if(filled.has(c))td.classList.add('filled');tr.appendChild(td)});
+    tb.appendChild(tr);
+  });
+  table.appendChild(tb);
+  if(outs.length>max){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=OUTPUT_COLUMNS.length;td.textContent=`プレビューは先頭${max}件まで。Excelには全${outs.length.toLocaleString()}件を出力します。`;tr.appendChild(td);tb.appendChild(tr);}
+}
+async function downloadXlsx(){
+  if(!results.length)return;
+  const wb=new ExcelJS.Workbook(); wb.creator='address-data-converter'; wb.created=new Date();
+  const ws=wb.addWorksheet('住所変換結果',{views:[{state:'frozen',ySplit:1,xSplit:2}]});
+  ws.columns=OUTPUT_COLUMNS.map(c=>({header:c,key:c,width:columnWidth(c)}));
+  ws.autoFilter={from:{row:1,column:1},to:{row:1,column:OUTPUT_COLUMNS.length}};
+  styleHeader(ws.getRow(1));
+  results.forEach(({out,filled})=>{
+    const er=ws.addRow(out);
+    OUTPUT_COLUMNS.forEach((c,i)=>{const cell=er.getCell(i+1);cell.numFmt='@';cell.alignment={vertical:'top',wrapText:false};if(filled.has(c))cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF4CC'}};});
+    const st=out['補完判定'];
+    if(st==='要確認（不一致）'||st==='判定不可') er.getCell(OUTPUT_COLUMNS.indexOf('補完判定')+1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFCE8E8'}};
+    else if(st==='要確認（候補複数）') er.getCell(OUTPUT_COLUMNS.indexOf('補完判定')+1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF1D6'}};
+  });
+  const ws2=wb.addWorksheet('要確認',{views:[{state:'frozen',ySplit:1,xSplit:2}]});
+  ws2.columns=OUTPUT_COLUMNS.map(c=>({header:c,key:c,width:columnWidth(c)}));styleHeader(ws2.getRow(1));ws2.autoFilter={from:{row:1,column:1},to:{row:1,column:OUTPUT_COLUMNS.length}};
+  results.filter(x=>!['OK','補完あり'].includes(x.out['補完判定'])).forEach(x=>{const r=ws2.addRow(x.out);r.eachCell(c=>c.numFmt='@')});
+  const buf=await wb.xlsx.writeBuffer();
+  saveBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'address_converted.xlsx');
+}
+function columnWidth(c){ if(c==='仕事名'||c==='全住所'||c==='確認メモ')return 34;if(c==='補完項目')return 28;if(c.includes('郵便番号'))return 18;if(c.includes('コード'))return 17;if(c==='補完判定')return 18;return 16;}
+function styleHeader(row){row.height=24;row.eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF355C8A'}};cell.alignment={vertical:'middle'};});}
+function escCSV(v){v=String(v??'');return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function downloadCSV(){
+  if(!results.length)return;
+  const rows=[OUTPUT_COLUMNS,...results.map(x=>OUTPUT_COLUMNS.map(c=>x.out[c]||''))];
+  const text=rows.map(r=>r.map(escCSV).join(',')).join('\r\n');
+  const sjis=Encoding.convert(Encoding.stringToCode(text),{to:'SJIS',from:'UNICODE'});
+  saveBlob(new Blob([new Uint8Array(sjis)],{type:'text/csv;charset=shift_jis'}),'address_converted.csv');
+}
+function saveBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);}
+async function handleFile(file){
+  if(!mastersReady){$('status').textContent='マスタ読み込み完了までお待ちください。';return;}
+  currentFile=file; workbookIn=null; $('sheetBox').style.display='none'; $('status').textContent='読み込み・処理中…'; $('status').className='status';
+  try{
+    let rows;
+    if(file.name.toLowerCase().endsWith('.xlsx')) rows=await readXlsx(file);
+    else rows=await readCSV(file);
+    await processRows(rows,`${file.name} / ${rows.length.toLocaleString()}件`);
+  }catch(e){console.error(e);$('status').textContent='ファイルを処理できませんでした：'+(e.message||e);$('status').className='status err';}
+}
+$('drop').addEventListener('click',()=>mastersReady&&$('file').click());
+$('file').addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0])});
+['dragenter','dragover'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('drag')}));
+$('drop').addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)handleFile(f)});
+$('rerun').addEventListener('click',async()=>{if(!workbookIn)return;const ws=workbookIn.getWorksheet(parseInt($('sheetSelect').value,10));if(ws)await processRows(worksheetToObjects(ws),`${currentFile?.name||'Excel'} / ${ws.name}`)});
+$('xlsxBtn').addEventListener('click',downloadXlsx);$('csvBtn').addEventListener('click',downloadCSV);
+loadMasters();
+</script>
+</body>
+</html>
