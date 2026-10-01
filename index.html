@@ -104,7 +104,8 @@ th{position:sticky;top:0;background:#eef4ff;color:#31415a;z-index:2;text-align:l
     <div class="helpBody">
       CSVまたはExcelを投入すると、住所・郵便番号・自治体コードを相互照合して不足情報を補完します。
       入力済みの値は原則として上書きせず、矛盾は <code>要確認（不一致）</code>、一意に決められないものは <code>要確認（候補複数）</code> として残します。<br>
-      <code>町域</code> は郵便番号マスタで特定できる町域、<code>町域以降</code> は市区町村より後ろの実住所です。
+      <code>町域</code> は郵便番号マスタで特定できる町域、<code>町域以降</code> は市区町村より後ろの住所です。番地等が分からず町域までしか確定できない場合も、町域を出力します。<br>
+      <code>詳細住所あり</code> は、町域より後ろに番地等があれば <code>1</code>、町域までなら <code>0</code>、町域未確定なら空欄です。
       <code>PrefCityコード</code> は先頭0なし、<code>標準地域コード</code> は5桁固定です。
       Excel出力後に要確認行を修正し、そのExcelを再投入して再判定できます。
     </div>
@@ -265,7 +266,7 @@ async function downloadXlsx(){
   const buf=await wb.xlsx.writeBuffer();
   saveBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),outputFileName('xlsx'));
 }
-function columnWidth(c){ if(c==='仕事名'||c==='全住所'||c==='確認メモ')return 34;if(c==='補完項目')return 28;if(c.includes('郵便番号'))return 18;if(c.includes('コード'))return 17;if(c==='補完判定')return 18;return 16;}
+function columnWidth(c){ if(c==='仕事名'||c==='全住所'||c==='確認メモ')return 34;if(c==='補完項目')return 28;if(c.includes('郵便番号'))return 18;if(c.includes('コード'))return 17;if(c==='補完判定')return 18;if(c==='詳細住所あり')return 15;return 16;}
 function styleHeader(row){row.height=24;row.eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF355C8A'}};cell.alignment={vertical:'middle'};});}
 function escCSV(v){v=String(v??'');return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
 function downloadCSV(){
