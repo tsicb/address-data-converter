@@ -22,6 +22,10 @@ button{border:none;border-radius:10px;padding:10px 15px;font-weight:700;cursor:p
 button:disabled{opacity:.45;cursor:not-allowed}.status{margin-top:14px;padding:12px 14px;border-radius:10px;background:#f3f6fa;color:#4e5c69}.status.ok{background:var(--green2);color:var(--green)}.status.err{background:var(--red2);color:var(--red)}
 .summary{display:none}.stats{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin-top:14px}.stat{background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:12px}.stat b{display:block;font-size:22px;margin-top:3px}.stat span{font-size:12px;color:var(--muted)}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.copyPanel{display:none;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#f8fafc}
+.copyGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:12px 0}
+.copyGrid label{display:flex;align-items:center;gap:7px;font-size:13px;background:white;border:1px solid #e5eaf0;padding:8px 10px;border-radius:9px}
+.help summary{cursor:pointer;font-weight:800}.helpBody{margin-top:14px;color:var(--muted);line-height:1.8}.helpBody code{background:#f1f4f8;padding:2px 5px;border-radius:5px;color:#425066}
 .tableWrap{display:none;overflow:auto;max-height:58vh;border:1px solid var(--line);border-radius:14px;background:white}
 table{border-collapse:separate;border-spacing:0;min-width:1700px;width:100%;font-size:13px}th,td{padding:9px 10px;border-right:1px solid #edf1f5;border-bottom:1px solid #edf1f5;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
 th{position:sticky;top:0;background:#eef4ff;color:#31415a;z-index:2;text-align:left}.bad{background:#fff4f4}.warn{background:#fff8e8}.filled{background:#fffbe9}
@@ -76,9 +80,35 @@ th{position:sticky;top:0;background:#eef4ff;color:#31415a;z-index:2;text-align:l
     </div>
     <div class="actions">
       <button id="xlsxBtn" class="primary">Excelをダウンロード</button>
+      <button id="copyToggleBtn" class="secondary">選択列をコピー</button>
       <button id="csvBtn" class="ghost">CSVをダウンロード</button>
     </div>
+    <div id="copyPanel" class="copyPanel">
+      <div class="row between">
+        <strong>Excelやスプレッドシートへ貼り付ける列を選択</strong>
+        <div class="row">
+          <button id="copyAllBtn" class="ghost small">すべて選択</button>
+          <button id="copyNoneBtn" class="ghost small">選択解除</button>
+        </div>
+      </div>
+      <div id="copyColumns" class="copyGrid"></div>
+      <div class="row">
+        <button id="copyBtn" class="primary">選択列をクリップボードへコピー</button>
+        <span id="copyMsg" class="muted"></span>
+      </div>
+    </div>
   </section>
+
+  <details class="card help">
+    <summary>使い方・列の意味を見る</summary>
+    <div class="helpBody">
+      CSVまたはExcelを投入すると、住所・郵便番号・自治体コードを相互照合して不足情報を補完します。
+      入力済みの値は原則として上書きせず、矛盾は <code>要確認（不一致）</code>、一意に決められないものは <code>要確認（候補複数）</code> として残します。<br>
+      <code>町域</code> は郵便番号マスタで特定できる町域、<code>町域以降</code> は市区町村より後ろの実住所です。
+      <code>PrefCityコード</code> は先頭0なし、<code>標準地域コード</code> は5桁固定です。
+      Excel出力後に要確認行を修正し、そのExcelを再投入して再判定できます。
+    </div>
+  </details>
 
   <div id="legend" class="legend" style="display:none">
     <span><i class="sw f"></i>今回補完したセル</span>
@@ -233,7 +263,7 @@ async function downloadXlsx(){
   ws2.columns=OUTPUT_COLUMNS.map(c=>({header:c,key:c,width:columnWidth(c)}));styleHeader(ws2.getRow(1));ws2.autoFilter={from:{row:1,column:1},to:{row:1,column:OUTPUT_COLUMNS.length}};
   results.filter(x=>!['OK','補完あり'].includes(x.out['補完判定'])).forEach(x=>{const r=ws2.addRow(x.out);r.eachCell(c=>c.numFmt='@')});
   const buf=await wb.xlsx.writeBuffer();
-  saveBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'address_converted.xlsx');
+  saveBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),outputFileName('xlsx'));
 }
 function columnWidth(c){ if(c==='仕事名'||c==='全住所'||c==='確認メモ')return 34;if(c==='補完項目')return 28;if(c.includes('郵便番号'))return 18;if(c.includes('コード'))return 17;if(c==='補完判定')return 18;return 16;}
 function styleHeader(row){row.height=24;row.eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF355C8A'}};cell.alignment={vertical:'middle'};});}
@@ -243,7 +273,38 @@ function downloadCSV(){
   const rows=[OUTPUT_COLUMNS,...results.map(x=>OUTPUT_COLUMNS.map(c=>x.out[c]||''))];
   const text=rows.map(r=>r.map(escCSV).join(',')).join('\r\n');
   const sjis=Encoding.convert(Encoding.stringToCode(text),{to:'SJIS',from:'UNICODE'});
-  saveBlob(new Blob([new Uint8Array(sjis)],{type:'text/csv;charset=shift_jis'}),'address_converted.csv');
+  saveBlob(new Blob([new Uint8Array(sjis)],{type:'text/csv;charset=shift_jis'}),outputFileName('csv'));
+}
+function outputFileName(ext){
+  const source=(currentFile?.name||'address_data').replace(/\.[^.]+$/,'').replace(/[\\/:*?"<>|]/g,'_');
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
+  const stamp=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  return `${source}_address-converted_${stamp}.${ext}`;
+}
+function tsvCell(v){return String(v??'').replace(/\t/g,' ').replace(/\r?\n/g,' ');}
+function initCopyColumns(){
+  const box=$('copyColumns'); box.innerHTML='';
+  OUTPUT_COLUMNS.forEach((col,i)=>{
+    const label=document.createElement('label');
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=col; cb.checked=true; cb.className='copyCol';
+    label.appendChild(cb); label.appendChild(document.createTextNode(col)); box.appendChild(label);
+  });
+}
+async function copySelectedColumns(){
+  if(!results.length)return;
+  const cols=[...document.querySelectorAll('.copyCol:checked')].map(x=>x.value);
+  if(!cols.length){$('copyMsg').textContent='列を1つ以上選択してください。';return;}
+  const lines=[cols.join('\t'),...results.map(({out})=>cols.map(c=>tsvCell(out[c])).join('\t'))];
+  const text=lines.join('\r\n');
+  try{
+    if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else{
+      const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
+    }
+    $('copyMsg').textContent=`${cols.length}列 × ${results.length.toLocaleString()}件をコピーしました。`;
+  }catch(e){
+    $('copyMsg').textContent='コピーできませんでした。ブラウザのクリップボード権限を確認してください。';
+  }
 }
 function saveBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);}
 async function handleFile(file){
@@ -263,6 +324,11 @@ $('file').addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target
 $('drop').addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)handleFile(f)});
 $('rerun').addEventListener('click',async()=>{if(!workbookIn)return;const ws=workbookIn.getWorksheet(parseInt($('sheetSelect').value,10));if(ws)await processRows(worksheetToObjects(ws),`${currentFile?.name||'Excel'} / ${ws.name}`)});
 $('xlsxBtn').addEventListener('click',downloadXlsx);$('csvBtn').addEventListener('click',downloadCSV);
+$('copyToggleBtn').addEventListener('click',()=>{$('copyPanel').style.display=$('copyPanel').style.display==='block'?'none':'block';});
+$('copyAllBtn').addEventListener('click',()=>document.querySelectorAll('.copyCol').forEach(x=>x.checked=true));
+$('copyNoneBtn').addEventListener('click',()=>document.querySelectorAll('.copyCol').forEach(x=>x.checked=false));
+$('copyBtn').addEventListener('click',copySelectedColumns);
+initCopyColumns();
 loadMasters();
 </script>
 </body>
