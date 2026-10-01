@@ -312,15 +312,33 @@ function processOne(input){
     if(fullParsed.zip) resolvedZip=fullParsed.zip;
     if(fullParsed.ambiguousTown) ambiguous.push('全住所からの町域・郵便番号候補が複数');
   }
-  if(!town && row['町域']) town=row['町域'];
-  if(!town && canonical && row['町域以降']){
+
+  if(row['町域']) town=row['町域'];
+
+  if(canonical && row['町域以降']){
     const tm=findTown(canonical.std,row['町域以降']);
-    if(tm){town=tm.town;resolvedZip=tm.zip;if(tm.ambiguous) ambiguous.push('町域以降からの郵便番号候補が複数');}
+    if(tm){
+      if(!town) town=tm.town;
+      if(tm.zip) resolvedZip=tm.zip;
+      if(tm.ambiguous) ambiguous.push('町域以降からの郵便番号候補が複数');
+    }
   }
-  if(!town && zipEv.zip && canonical){
+
+  if(canonical && row['町域']){
+    const target=norm(row['町域']);
+    const matches=(zipByStd.get(canonical.std)||[]).filter(x=>x.addressN===target);
+    const zips=unique(matches.map(x=>x.zip));
+    if(zips.length===1) resolvedZip=resolvedZip||zips[0];
+    else if(zips.length>1) ambiguous.push(`町域「${row['町域']}」に対応する郵便番号が複数`);
+  }
+
+  if(zipEv.zip && canonical){
     const pti=postalTownInfo(zipEv.zip,canonical.std);
-    if(pti.town) town=pti.town;
+    if(!town && pti.town) town=pti.town;
     if(pti.ambiguous) ambiguous.push(`郵便番号「${zipEv.zip}」に対応する町域が複数`);
+    if(row['町域'] && pti.town && norm(row['町域'])!==norm(pti.town)){
+      conflicts.push(`入力郵便番号「${zipEv.zip}」と入力町域「${row['町域']}」が不一致`);
+    }
   }
   fill('町域',town);
 
