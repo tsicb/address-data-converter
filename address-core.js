@@ -9,12 +9,12 @@
     '仕事番号','仕事名',
     '郵便番号（ハイフン）','郵便番号1',
     '町域未指定郵便番号（ハイフン）','町域未指定郵便番号1',
-    '全住所','都道府県','市区町村','町域','町域以降',
+    '全住所','都道府県','市区町村','町域','町域以降','詳細住所あり',
     '県コード1','市区町村コード1','PrefCityコード','標準地域コード',
     '補完判定','補完項目','確認メモ'
   ];
   const INPUT_COLUMNS=OUTPUT_COLUMNS.filter(x=>![
-    '補完判定','補完項目','確認メモ',
+    '補完判定','補完項目','確認メモ','詳細住所あり',
     '町域未指定郵便番号（ハイフン）','町域未指定郵便番号1'
   ].includes(x));
 
@@ -265,7 +265,18 @@
       }
       fill('町域',town);
 
+      // 「町域以降」は市区町村より後ろ全体を表す。番地等がなく町域までしか
+      // 確定できない場合も、後工程で利用できるよう町域そのものを補完する。
+      if(canonical&&out['町域']&&!out['町域以降'])fill('町域以降',out['町域']);
+
       if(!out['全住所']&&canonical&&out['町域以降'])fill('全住所',canonical.prefName+canonical.cityName+out['町域以降']);
+
+      // 詳細住所あり: 1=町域より後ろに番地等あり、0=町域まで、空欄=町域未確定。
+      // 診断列と同様の派生値なので filled には含めず、再投入時も毎回再計算する。
+      if(out['町域']){
+        const townN=norm(out['町域']),tailN=norm(out['町域以降']);
+        out['詳細住所あり']=tailN&&townN&&tailN.startsWith(townN)&&tailN.length>townN.length?'1':'0';
+      }
 
       if(resolvedZip&&zipEv.zip&&resolvedZip!==zipEv.zip){
         conflicts.push('入力郵便番号「'+zipEv.zip+'」と住所から判定した郵便番号「'+resolvedZip+'」が不一致');
