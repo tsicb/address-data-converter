@@ -157,7 +157,7 @@
       const out={};OUTPUT_COLUMNS.forEach(c=>out[c]='');
       INPUT_COLUMNS.forEach(c=>out[c]=row[c]);
 
-      const filled=new Set(),notes=[],conflicts=[],ambiguous=[];
+      const filled=new Set(),notes=[],conflicts=[],ambiguous=[],invalid=[];
       const fill=(col,val)=>{
         if(!out[col]&&val!==''&&val!==null&&val!==undefined){
           out[col]=String(val);filled.add(col);
@@ -166,6 +166,24 @@
 
       const zipEv=parseZipEvidence(row);
       if(zipEv.conflict)conflicts.push('郵便番号2列が不一致（'+zipEv.values.join(' / ')+'）');
+      if(zipEv.zip && !(zipByZip.get(zipEv.zip)||[]).length){
+        invalid.push('郵便番号「'+zipEv.zip+'」が郵便番号マスタに存在しません');
+      }
+
+      const rawStd=stdCode(row['標準地域コード']);
+      if(row['標準地域コード'] && (!rawStd || !muniByStd.has(rawStd))){
+        invalid.push('標準地域コード「'+row['標準地域コード']+'」が自治体マスタに存在しません');
+      }
+      const rawPc=norm(row['PrefCityコード']).replace(/\D/g,'');
+      if(row['PrefCityコード']){
+        const pcStd=rawPc.padStart(5,'0');
+        if(!rawPc || !muniByStd.has(pcStd)) invalid.push('PrefCityコード「'+row['PrefCityコード']+'」が自治体マスタに存在しません');
+      }
+      const rawP=prefCodeNum(row['県コード1']), rawC=cityCode3(row['市区町村コード1']);
+      if(row['県コード1'] && row['市区町村コード1']){
+        const pairStd=rawP&&rawC ? String(parseInt(rawP,10)).padStart(2,'0')+rawC : '';
+        if(!pairStd || !muniByStd.has(pairStd)) invalid.push('県コード1＋市区町村コード1が自治体マスタに存在しません');
+      }
 
       const strong=[];
       municipalityFromCodes(row).forEach(x=>strong.push(x));
@@ -272,6 +290,8 @@
         out['補完判定']='要確認（不一致）';notes.push(...conflicts);
       }else if(ambiguous.length){
         out['補完判定']='要確認（候補複数）';notes.push(...ambiguous);
+      }else if(invalid.length){
+        out['補完判定']='判定不可';notes.push(...invalid);
       }else if(!canonical&&!normalZip&&!row['全住所']){
         out['補完判定']='判定不可';notes.push('住所・郵便番号・自治体コードから自治体を特定できません');
       }else if(!canonical&&row['全住所']){
